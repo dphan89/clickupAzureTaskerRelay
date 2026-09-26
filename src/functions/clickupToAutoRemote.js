@@ -14,6 +14,7 @@ app.http("clickupToAutoRemote", {
 
   handler: async (request, context) => {
     try {
+      let commentText = "";
       if (request.method === "POST") {
         const body = await request.text();
         if (!validSignature(body, request.headers.get("x-signature"), process.env.CLICKUP_WEBHOOK_SECRET)) {
@@ -31,11 +32,21 @@ app.http("clickupToAutoRemote", {
         if (process.env.CLICKUP_WEBHOOK_ID && payload.webhook_id !== process.env.CLICKUP_WEBHOOK_ID) {
           return { status: 401, jsonBody: { ok: false, error: "Unknown webhook" } };
         }
+        // ClickUp includes the new comment in the signed webhook body.
+        const comment = payload.history_items?.find((item) => item.field === "comment")?.comment;
+        commentText = String(comment?.text_content || "")
+          .replace(/=:=/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 1000);
       }
 
       const key = process.env.AUTOREMOTE_KEY;
       const message =
         process.env.AUTOREMOTE_MESSAGE || "clickup_hourly";
+      const outgoingMessage = commentText
+        ? `${message.trim()}=:=${commentText}`
+        : message.trim();
 
       if (!key) {
         return {
@@ -52,7 +63,7 @@ app.http("clickupToAutoRemote", {
       );
 
       url.searchParams.set("key", key.trim());
-      url.searchParams.set("message", message.trim());
+      url.searchParams.set("message", outgoingMessage);
 
       const response = await fetch(url, {
         method: "POST"
